@@ -48,17 +48,20 @@ class ClickstreamProvider(BaseProvider):
         """
         return random.choices(weighted_events, weights=[e['popularity'] for e in weighted_events], k=1)[0]
 
-    def session_clickstream(self, rand_session_max_size: int = 25):
+    def session_clickstream(self, rand_session_max_size: int = 25, max_product_code: int = 999999, max_order_id: int = 999999, max_user_id: int = 999999):
         """
         Generate session clickstream events.
 
         :param rand_session_max_size: Max number of possible events in session. Defaults to 25.
+        :param max_product_code: Max value for product codes. Defaults to 999999.
+        :param max_order_id: Max value for order IDs. Defaults to 999999.
+        :param max_user_id: Max value for user IDs. Defaults to 999999.
         :return: List of session events
         """
 
         # Initialize static session values
         session_events = []
-        user_id = _get_user_id()
+        user_id = _get_user_id(end=max_user_id)
         user_agent = self.user_agent()
         session_id = _get_session_id()
         ip = _get_ip()
@@ -87,7 +90,7 @@ class ClickstreamProvider(BaseProvider):
 
             if event['name'] == 'Login' and user_id == 0:
                 # If user id is -1 and Login event, regenerate user ID.
-                user_id = _get_user_id(start=1)
+                user_id = _get_user_id(start=1, end=max_user_id)
 
             if (event['name'] == 'Login' and user_id != 0) or (event['name'] == 'Logout' and user_id == 0):
                 # Add a mock Search event
@@ -125,7 +128,7 @@ class ClickstreamProvider(BaseProvider):
                 )
 
             if event['name'] in ('AddToCart', 'IncreaseQuantity'):
-                metadata['product_id'] = _get_product_code()
+                metadata['product_id'] = _get_product_code(max_product_code)
                 metadata['quantity'] = _get_quantity()
                 product_codes.add(metadata['product_id'])
 
@@ -136,7 +139,7 @@ class ClickstreamProvider(BaseProvider):
                     metadata['product_id'] = random_delete
 
             if event['name'] == 'CheckOrderStatus':
-                metadata['order_id'] = _get_order_id()
+                metadata['order_id'] = _get_order_id(max_order_id)
 
             # Construct final event object
             r = {
@@ -168,31 +171,33 @@ def _get_session_id():
     ).hexdigest()
 
 
-def _get_product_code():
+def _get_product_code(max_value: int = 999999):
     """
-    Generate random product code from range 1 to 999999.
+    Generate random product code from range 1 to max_value.
 
+    :param max_value: Max value for product code. Defaults to 999999.
     :return: Random integer number
     """
-    return randint(1, 999999)
+    return randint(1, max_value)
 
 
-def _get_order_id():
+def _get_order_id(max_value: int = 999999):
     """
-    Generate random order id from range 1 to 999999.
+    Generate random order id from range 1 to max_value.
 
+    :param max_value: Max value for order ID. Defaults to 999999.
     :return: Random integer number
     """
-    return randint(1, 999999)
+    return randint(1, max_value)
 
 
 def _get_user_id(start: int = 0, end: int = 999999):
     """
-    Generate random user id from range 0 to 999999. Zero value may identify null user.
+    Generate random user id from range start to end. Zero value may identify null user.
 
     :param start: Index start (Default: 0)
     :param end: Index end (Default: 999999)
-    :return:
+    :return: Random integer number
     """
     return randint(start, end)
 
