@@ -1,9 +1,11 @@
 import hashlib
 import random
+import re
 import string
 from datetime import datetime, timedelta
 from random import choice, randint
 
+import numpy as np
 from faker.providers import BaseProvider
 
 from faker_clickstream.event_constants import weighted_events, events, channel
@@ -48,7 +50,7 @@ class ClickstreamProvider(BaseProvider):
         """
         return random.choices(weighted_events, weights=[e['popularity'] for e in weighted_events], k=1)[0]
 
-    def session_clickstream(self, rand_session_max_size: int = 25, max_product_code: int = 999999, max_order_id: int = 999999, max_user_id: int = 999999):
+    def session_clickstream(self, rand_session_max_size: int = 25, max_product_code: int = 999999, max_order_id: int = 999999, max_user_id: int = 999999, start_time: str = "0s", a: float = 1.5):
         """
         Generate session clickstream events.
 
@@ -56,6 +58,8 @@ class ClickstreamProvider(BaseProvider):
         :param max_product_code: Max value for product codes. Defaults to 999999.
         :param max_order_id: Max value for order IDs. Defaults to 999999.
         :param max_user_id: Max value for user IDs. Defaults to 999999.
+        :param start_time: Start time offset from current time (e.g., "-1d", "-1h", "+1m", "0s"). Defaults to "0s".
+        :param a: Shape parameter for Pareto distribution. Defaults to 1.5.
         :return: List of session events
         """
 
@@ -67,16 +71,23 @@ class ClickstreamProvider(BaseProvider):
         ip = _get_ip()
         channel_type = _get_channel()
         random_session_size = randint(1, rand_session_max_size)
-        incremental_delta_delay = randint(1, 60)
+
+        # Parse start_time and calculate the base event time
+        start_offset_seconds = _parse_time_interval(start_time)
+        current_event_time = datetime.now() + timedelta(seconds=start_offset_seconds)
 
         # Keep track of unique values in a session
         unique_session_events = set()
         product_codes = set()
 
         for s in range(random_session_size):
-            # Mock time delay between events
-            incremental_delta_delay = incremental_delta_delay + (s * randint(1, 60))
-            event_time = _format_time(_get_event_time(delta=incremental_delta_delay))
+            # Format current event time
+            event_time = _format_time(current_event_time)
+
+            # Generate next event time offset using Pareto distribution
+            if s < random_session_size - 1:
+                pareto_offset = np.random.pareto(a)
+                current_event_time = current_event_time + timedelta(seconds=pareto_offset)
 
             # Fetch weighted event
             event = self.weighted_event()
@@ -156,6 +167,37 @@ class ClickstreamProvider(BaseProvider):
         return session_events
 
 
+def _parse_time_interval(interval: str):
+    """
+    Parse time interval string and convert to seconds.
+
+    :param interval: Time interval string (e.g., "-1d", "-1h", "+1m", "0s")
+    :return: Offset in seconds
+    """
+    match = re.match(r'^([+-]?)(\d+)([smhd])$', interval)
+    if not match:
+        raise ValueError(f"Invalid time interval format: {interval}. Expected format: [+/-]<number><unit> where unit is s/m/h/d")
+
+    sign, value, unit = match.groups()
+    value = int(value)
+
+    # Convert to seconds
+    unit_multipliers = {
+        's': 1,
+        'm': 60,
+        'h': 3600,
+        'd': 86400
+    }
+
+    seconds = value * unit_multipliers[unit]
+
+    # Apply sign
+    if sign == '-':
+        seconds = -seconds
+
+    return seconds
+
+
 def _get_session_id():
     """
     Generate session ID
@@ -200,16 +242,6 @@ def _get_user_id(start: int = 0, end: int = 999999):
     :return: Random integer number
     """
     return randint(start, end)
-
-
-def _get_event_time(delta):
-    """
-    Generate current event time, added by some delta value.
-
-    :param delta: Delta time value in seconds
-    :return: Event time
-    """
-    return datetime.now() + timedelta(seconds=delta)
 
 
 def _format_time(t):
